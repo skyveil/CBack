@@ -1,7 +1,6 @@
 #include "net.h"
 
 #include <errno.h>
-#include <stdio.h>
 #include <stdlib.h>
 
 #include <netdb.h>
@@ -101,22 +100,21 @@ int cback_net_loop_poll(cback_net_loop *loop, u16 timeout) {
 }
 
 void loop_add_net(cback_net_loop *loop, cback_net_conn *net) {
+    if (loop == NULL) {
+        net->state = NET_NO_LOOP;
+        return;
+    }
+
     if (loop->count >= loop->max_conn) {
         loop->state = NET_LOOP_MAX_CONN;
         return;
     }
 
-    if (loop != NULL) {
-        if (loop->connections == NULL)
-            loop->connections = net;
-        else
-            loop->connections->next = net;
-        loop->count++;
-    }
-    else {
-        loop->state = NET_LOOP_UNINIT;
-        return;
-    }
+    if (loop->connections == NULL)
+        loop->connections = net;
+    else
+        loop->connections->next = net;
+    loop->count++;
 
     struct epoll_event ev;
     ev.events = EPOLLOUT;

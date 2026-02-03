@@ -12,6 +12,7 @@ typedef enum {
     NET_DISCONNECTED,
 
     NET_SOCK_UNINIT = -1,
+    NET_NO_LOOP = -2,
 } cback_net_state;
 
 struct cback_net_conn;
