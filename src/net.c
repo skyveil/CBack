@@ -1,6 +1,6 @@
 #include "net.h"
-
 #include "alloc.h"
+
 #include <errno.h>
 #include <stdlib.h>
 
@@ -10,50 +10,104 @@
 #include <sys/socket.h>
 #include <sys/epoll.h>
 
+#include <openssl/bio.h>
+
 // FIX: Nothing is error handled correctly, yet
 
 void loop_add_net(cback_net_loop *loop, cback_net_conn *net);
 void close_conn(cback_net_loop *loop, cback_net_conn *net);
 int flush_out_buf(cback_net_loop *loop, cback_net_conn *net);
 
-cback_net_conn *cback_net_connect(cback_net_loop *loop, const char *host, const char *port) {
-    int sock_fd;
-
-    struct addrinfo hints = { 0 }, *ai_list;
-
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-
+cback_net_conn *cback_net_connect(cback_net_loop *loop, const char *host, const char *port, cback_net_proto proto) {
     cback_net_conn *net = malloc(sizeof(cback_net_conn));
 
-    if (getaddrinfo(host, port, &hints, &ai_list) != 0) {
-        net->state = NET_SOCK_UNINIT;
-        return net;
-    }
+    int sock_fd;
+    switch (proto) {
+        case NET_PROTO_RAW: {
+            struct addrinfo hints = { 0 }, *ai_list;
+            hints.ai_family = AF_UNSPEC;
+            hints.ai_socktype = SOCK_STREAM;
 
-    int conn_err = 0;
-    for (struct addrinfo *ai = ai_list; ai->ai_next != NULL; ai = ai->ai_next) {
-        sock_fd = socket(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK | SOCK_CLOEXEC, ai->ai_protocol);
-        if (sock_fd == -1)
-            continue;
+            if (getaddrinfo(host, port, &hints, &ai_list) != 0) {
+                net->state = NET_SOCK_UNINIT;
+                return net;
+            }
 
-        int flag = 1;
-        if (setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &flag, sizeof(flag)) == -1)
-            continue;
+            int conn_err = 0;
+            for (struct addrinfo *ai = ai_list; ai != NULL; ai = ai->ai_next) {
+                sock_fd = socket(ai->ai_family, ai->ai_socktype | SOCK_NONBLOCK | SOCK_CLOEXEC, ai->ai_protocol);
+                if (sock_fd == -1)
+                    continue;
 
-        if (connect(sock_fd, ai->ai_addr, ai->ai_addrlen) == -1 && (conn_err = errno) != EINPROGRESS)
-            continue;
+                int flag = 1;
+                if (setsockopt(sock_fd, SOL_SOCKET, SO_REUSEADDR | SO_REUSEPORT, &flag, sizeof(flag)) == -1)
+                    continue;
 
-        break;
-    }
+                if (connect(sock_fd, ai->ai_addr, ai->ai_addrlen) == -1 && (conn_err = errno) != EINPROGRESS)
+                    continue;
 
-    if (conn_err != EINPROGRESS) {
-        net->state = NET_SOCK_UNINIT;
-        return net;
+                break;
+            }
+
+            if (conn_err != EINPROGRESS) {
+                net->state = NET_SOCK_UNINIT;
+                return net;
+            }
+
+            break;
+        }
+
+        case NET_PROTO_SSL: {
+            BIO_ADDRINFO *res;
+            BIO *bio;
+
+            if (!BIO_lookup_ex(host, port, BIO_LOOKUP_CLIENT, AF_UNSPEC, SOCK_STREAM, 0, &res)) {
+                net->state = NET_SOCK_UNINIT;
+                return net;
+            }
+
+            for (const BIO_ADDRINFO *ai = res; ai != NULL; ai = BIO_ADDRINFO_next(ai)) {
+                sock_fd = BIO_socket(BIO_ADDRINFO_family(ai), SOCK_STREAM, 0, 0);
+                if (sock_fd == -1)
+                    continue;
+
+                if (!BIO_connect(sock_fd, BIO_ADDRINFO_address(ai), BIO_SOCK_NODELAY)) {
+                    BIO_closesocket(sock_fd);
+                    sock_fd = -1;
+                    continue;
+                }
+
+                if (!BIO_socket_nbio(sock_fd, 1)) {
+                    sock_fd = -1;
+                    continue;
+                }
+
+                break;
+            }
+
+            BIO_ADDRINFO_free(res);
+
+            if (sock_fd == -1) {
+                net->state = NET_SOCK_UNINIT;
+                return net;
+            }
+
+            bio = BIO_new(BIO_s_socket());
+            if (bio == NULL) {
+                BIO_closesocket(sock_fd);
+                net->state = NET_SOCK_UNINIT;
+                return net;
+            }
+
+            BIO_set_fd(bio, sock_fd, BIO_CLOSE);
+
+            break;
+        }
     }
 
     net->sock_fd = sock_fd;
     net->state = NET_CONNECTING;
+    net->proto = proto;
     net->listen = 0;
 
     net->conn_arena = cback_arena_create(65536);

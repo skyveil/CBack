@@ -16,6 +16,11 @@ typedef enum {
     NET_NO_LOOP = -2,
 } cback_net_state;
 
+typedef enum {
+    NET_PROTO_RAW,
+    NET_PROTO_SSL,
+} cback_net_proto;
+
 struct cback_net_conn;
 struct cback_net_loop;
 
@@ -27,6 +32,7 @@ typedef struct cback_net_conn {
     int sock_fd;
     int listen;
     cback_net_state state;
+    cback_net_proto proto;
 
     cback_arena conn_arena;
 
@@ -63,7 +69,7 @@ typedef struct cback_net_loop {
     cback_net_loop_state state;
 } cback_net_loop;
 
-cback_net_conn *cback_net_connect(cback_net_loop *loop, const char *host, const char *port);
+cback_net_conn *cback_net_connect(cback_net_loop *loop, const char *host, const char *port, cback_net_proto proto);
 int cback_net_send(cback_net_loop *loop, cback_net_conn *net, void *data, u32 size);
 
 cback_net_loop cback_net_loop_init(u8 max_conn);

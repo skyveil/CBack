@@ -13,13 +13,13 @@ void on_data(cback_net_conn *net, void *recv_data, u32 len) {
 }
 
 void on_connect(cback_net_loop *loop, cback_net_conn *net) {
-    char message[17] = "GET / HTTP/1.1\r\n";
-    cback_net_send(loop, net, message, 17);
+    char message[] = "GET / HTTP/1.1\r\n";
+    cback_net_send(loop, net, message, 30);
 }
 
 int main() {
     cback_net_loop loop = cback_net_loop_init(12);
-    cback_net_conn *net = cback_net_connect(&loop, "httpforever.com", "80");
+    cback_net_conn *net = cback_net_connect(&loop, "fmhy.net", "80", NET_PROTO_SSL);
     if (net->state != NET_CONNECTING) {
         perror("");
         exit(EXIT_FAILURE);
