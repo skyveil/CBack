@@ -20,16 +20,16 @@ void on_connect(cback_net_loop *loop, cback_net_conn *net) {
 int main() {
     cback_net_loop loop = cback_net_loop_init(12);
     cback_net_conn *net = cback_net_connect(&loop, "fmhy.net", "80", NET_PROTO_SSL);
-    if (net->state != NET_CONNECTING) {
+    if (net->state != NET_SSL_HANDSHAKE) {
         perror("");
         exit(EXIT_FAILURE);
     }
 
-    net->on_data = &on_data;
+    // net->on_data = &on_data;
     net->on_connect = &on_connect;
     printf("Successfully waiting for connection!!!\n");
     while (1) {
-        if (net->state == NET_DISCONNECTED) {
+        if (net->state == NET_CONNECTED) {
             printf("Connected successfully!!!\n");
             exit(EXIT_SUCCESS);
         }

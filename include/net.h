@@ -5,12 +5,15 @@
 #include "utils.h"
 
 #include <sys/socket.h>
+#include <openssl/ssl.h>
 
 typedef enum {
     NET_OK = 0,
     NET_CONNECTING,
     NET_CONNECTED,
     NET_DISCONNECTED,
+
+    NET_SSL_HANDSHAKE,
 
     NET_SOCK_UNINIT = -1,
     NET_NO_LOOP = -2,
@@ -30,6 +33,8 @@ typedef void (*cback_net_connect_cb)(struct cback_net_loop *loop, struct cback_n
 
 typedef struct cback_net_conn {
     int sock_fd;
+    SSL *ssl;
+
     int listen;
     cback_net_state state;
     cback_net_proto proto;

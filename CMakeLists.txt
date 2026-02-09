@@ -11,6 +11,10 @@ endif()
 
 add_library(cback SHARED src/alloc.c src/net.c src/collections.c)
 
+find_package(OpenSSL REQUIRED)
+
+target_link_libraries(cback OpenSSL::SSL OpenSSL::Crypto)
+
 # NOTE: public for now, will work on visibility changes later
 target_include_directories(cback PUBLIC include)
 target_include_directories(cback PRIVATE src)

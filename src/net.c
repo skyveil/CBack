@@ -22,6 +22,7 @@ cback_net_conn *cback_net_connect(cback_net_loop *loop, const char *host, const 
     cback_net_conn *net = malloc(sizeof(cback_net_conn));
 
     int sock_fd;
+    SSL *ssl = NULL;
     switch (proto) {
         case NET_PROTO_RAW: {
             struct addrinfo hints = { 0 }, *ai_list;
@@ -101,12 +102,57 @@ cback_net_conn *cback_net_connect(cback_net_loop *loop, const char *host, const 
 
             BIO_set_fd(bio, sock_fd, BIO_CLOSE);
 
+            SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
+            if (ctx == NULL) {
+                net->state = NET_SOCK_UNINIT;
+                return net;
+            }
+
+            SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+
+            if (!SSL_CTX_set_default_verify_paths(ctx)) {
+                net->state = NET_SOCK_UNINIT;
+                return net;
+            }
+
+            if (!SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION)) {
+                net->state = NET_SOCK_UNINIT;
+                return net;
+            }
+
+            ssl = SSL_new(ctx);
+            if (ssl == NULL) {
+                net->state = NET_SOCK_UNINIT;
+                return net;
+            }
+
+            SSL_set_bio(ssl, bio, bio);
+
+            if (!SSL_set_tlsext_host_name(ssl, host)) {
+                net->state = NET_SOCK_UNINIT;
+                return net;
+            }
+
+            if (!SSL_set1_host(ssl, host)) {
+                net->state = NET_SOCK_UNINIT;
+                return net;
+            }
+
+            int ret = SSL_connect(ssl);
+            ret = SSL_get_error(ssl, ret);
+            if (ret != SSL_ERROR_WANT_READ && ret != SSL_ERROR_WANT_WRITE) {
+                net->state = NET_SOCK_UNINIT;
+                return net;
+            }
+
             break;
         }
     }
 
     net->sock_fd = sock_fd;
-    net->state = NET_CONNECTING;
+    net->ssl = ssl;
+
+    net->state = (proto == NET_PROTO_RAW ? NET_CONNECTING : NET_SSL_HANDSHAKE);
     net->proto = proto;
     net->listen = 0;
 
@@ -207,6 +253,35 @@ int cback_net_loop_poll(cback_net_loop *loop, u16 timeout) {
                 net->state = NET_CONNECTED;
                 if (net->on_connect)
                     net->on_connect(loop, net);
+            }
+
+            if (net->state == NET_SSL_HANDSHAKE) {
+                int res = SSL_connect(net->ssl);
+                if (res == 1) {
+                    net->state = NET_CONNECTED;
+                    if (net->on_connect)
+                        net->on_connect(loop, net);
+                }
+                else {
+                    switch (SSL_get_error(net->ssl, res)) {
+                        case SSL_ERROR_WANT_READ:
+                            printf("You need to handle read!!!\n");
+                            break;
+
+                        case SSL_ERROR_WANT_WRITE: {
+                            struct epoll_event ev;
+                            ev.data.fd = net->sock_fd;
+                            ev.events = EPOLLOUT | EPOLLIN | EPOLLET;
+                            if (epoll_ctl(loop->epoll_fd, EPOLL_CTL_MOD, net->sock_fd, &ev) == -1)
+                                loop->state = NET_LOOP_ADD_ERROR;
+
+                            break;
+                        }
+
+                        default:
+                            close_conn(loop, net);
+                    }
+                }
             }
 
             if (net->out_len > 0)
