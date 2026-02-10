@@ -179,7 +179,29 @@ int cback_net_send(cback_net_loop *loop, cback_net_conn *net, void *data, u32 si
         return size;
     }
 
-    u32 nbytes = send(net->sock_fd, data, size, 0);
+    u64 nbytes;
+    switch (net->proto) {
+        case NET_PROTO_RAW:
+            nbytes = send(net->sock_fd, data, size, 0);
+            break;
+
+        case NET_PROTO_SSL: {
+            while (!SSL_write_ex(net->ssl, data, size, &nbytes)) {
+                int err = SSL_get_error(net->ssl, 0);
+                switch (err) {
+                    case SSL_ERROR_WANT_READ:
+                    case SSL_ERROR_WANT_WRITE:
+                        continue;
+
+                    default:
+                        nbytes = -1;
+                        net->state = NET_SOCK_UNINIT; // definitely not the thing to do
+                        break;
+                }
+            }
+        }
+    }
+
     if (nbytes == -1) {
         if (errno == EAGAIN || errno == EWOULDBLOCK)
             nbytes = 0;
@@ -242,7 +264,8 @@ int cback_net_loop_poll(cback_net_loop *loop, u16 timeout) {
             }
 
             if (events[i].events & EPOLLHUP) {
-                // send remaining data
+                // send remaining data, FIX: This is just a placeholder: test this
+                flush_out_buf(loop, net);
             }
 
             close_conn(loop, net);
@@ -263,9 +286,9 @@ int cback_net_loop_poll(cback_net_loop *loop, u16 timeout) {
                         net->on_connect(loop, net);
                 }
                 else {
-                    switch (SSL_get_error(net->ssl, res)) {
+                    int err = SSL_get_error(net->ssl, res);
+                    switch (err) {
                         case SSL_ERROR_WANT_READ:
-                            printf("You need to handle read!!!\n");
                             break;
 
                         case SSL_ERROR_WANT_WRITE: {
@@ -278,8 +301,9 @@ int cback_net_loop_poll(cback_net_loop *loop, u16 timeout) {
                             break;
                         }
 
-                        default:
-                            close_conn(loop, net);
+                        case SSL_ERROR_SSL:
+                            if (SSL_get_verify_result(net->ssl) != X509_V_OK)
+                                loop->state = NET_LOOP_ADD_ERROR;
                     }
                 }
             }
@@ -291,8 +315,37 @@ int cback_net_loop_poll(cback_net_loop *loop, u16 timeout) {
         if (events[i].events & EPOLLIN) {
             // Handle recv repeatedly until errno = EAGAIN is set
             // Also handle connection failures/ending EPOLLHUP and writes EPOLLOUT
-            u32 read_size = 0;
-            while ((read_size = recv(net->sock_fd, net->read_buf + net->read_len, net->rb_size, 0)) == -1 && (errno == EAGAIN || errno == EWOULDBLOCK));
+            u64 read_size = 0;
+
+            switch (net->proto) {
+                case NET_PROTO_RAW: {
+                    while ((read_size = recv(net->sock_fd, net->read_buf + net->read_len, net->rb_size, 0)) == -1 && (errno == EAGAIN || errno == EWOULDBLOCK));
+
+                    break;
+                }
+
+                case NET_PROTO_SSL: {
+                    int eof = 0;
+                    while (!eof && !SSL_read_ex(net->ssl, net->read_buf, net->rb_size, &read_size)) {
+                        int err = SSL_get_error(net->ssl, 0);
+                        switch (err) {
+                            case SSL_ERROR_WANT_READ:
+                            case SSL_ERROR_WANT_WRITE:
+                                continue;
+
+                            case SSL_ERROR_ZERO_RETURN:
+                                eof = 1;
+                                continue;
+
+                            default:
+                                net->state = NET_SOCK_UNINIT; // definitely not the thing to do
+                                break;
+                        }
+                    }
+
+                    break;
+                }
+            }
 
             net->read_len += read_size;
             if (net->on_data)
