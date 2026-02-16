@@ -255,7 +255,7 @@ int cback_net_loop_poll(cback_net_loop *loop, u16 timeout) {
 
         // When the library is in a decent state, handle errors earnestly
         if (events[i].events & (EPOLLHUP | EPOLLERR | EPOLLHUP)) {
-            net->on_close(net);
+            net->on_close(loop, net);
 
             if (events[i].events & EPOLLERR) {
                 int flag = 0;
@@ -315,26 +315,23 @@ int cback_net_loop_poll(cback_net_loop *loop, u16 timeout) {
         if (events[i].events & EPOLLIN) {
             // Handle recv repeatedly until errno = EAGAIN is set
             // Also handle connection failures/ending EPOLLHUP and writes EPOLLOUT
-            u64 read_size = 0;
+            long long read_size = 0;
 
             switch (net->proto) {
                 case NET_PROTO_RAW: {
-                    while ((read_size = recv(net->sock_fd, net->read_buf + net->read_len, net->rb_size, 0)) == -1 && (errno == EAGAIN || errno == EWOULDBLOCK));
+                    read_size = recv(net->sock_fd, net->read_buf + net->read_len, net->rb_size - net->read_len, 0);
+                    if (read_size < 0 && errno != EAGAIN && errno != EWOULDBLOCK)
+                        net->state = NET_DISCONNECTED; // this should error correctly
 
                     break;
                 }
 
                 case NET_PROTO_SSL: {
-                    int eof = 0;
-                    while (!eof && !SSL_read_ex(net->ssl, net->read_buf, net->rb_size, &read_size)) {
+                    if(!SSL_read_ex(net->ssl, net->read_buf + net->read_len, net->rb_size - net->read_len, (u64 *)&read_size)) {
                         int err = SSL_get_error(net->ssl, 0);
                         switch (err) {
                             case SSL_ERROR_WANT_READ:
                             case SSL_ERROR_WANT_WRITE:
-                                continue;
-
-                            case SSL_ERROR_ZERO_RETURN:
-                                eof = 1;
                                 continue;
 
                             default:
@@ -348,8 +345,10 @@ int cback_net_loop_poll(cback_net_loop *loop, u16 timeout) {
             }
 
             net->read_len += read_size;
-            if (net->on_data)
-                net->on_data(net, net->read_buf, net->read_len);
+            if (net->on_data) {
+                net->on_data(loop, net);
+                net->read_len = 0;
+            }
         }
     }
 

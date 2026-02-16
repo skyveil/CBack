@@ -9,7 +9,7 @@ if (BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-add_library(cback SHARED src/alloc.c src/net.c src/collections.c)
+add_library(cback SHARED src/alloc.c src/net.c src/collections.c src/http.c)
 
 find_package(OpenSSL REQUIRED)
 

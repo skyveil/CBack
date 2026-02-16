@@ -27,8 +27,8 @@ typedef enum {
 struct cback_net_conn;
 struct cback_net_loop;
 
-typedef void (*cback_net_data_cb)(struct cback_net_conn *net, void *data, u32 len);
-typedef void (*cback_net_close_cb)(struct cback_net_conn *net);
+typedef void (*cback_net_data_cb)(struct cback_net_loop *loop, struct cback_net_conn *net);
+typedef void (*cback_net_close_cb)(struct cback_net_loop *loop, struct cback_net_conn *net);
 typedef void (*cback_net_connect_cb)(struct cback_net_loop *loop, struct cback_net_conn *net);
 
 typedef struct cback_net_conn {
@@ -49,6 +49,7 @@ typedef struct cback_net_conn {
     u8 *out_buf;
     u32 out_len;
 
+    void *user_data;
     cback_net_data_cb on_data;
     cback_net_close_cb on_close;
     cback_net_connect_cb on_connect;

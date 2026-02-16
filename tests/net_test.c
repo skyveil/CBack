@@ -3,12 +3,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-void on_data(cback_net_conn *net, void *recv_data, u32 len) {
-    printf("Got %d bytes!!!\n", len);
-    char *data = recv_data;
+void on_data(cback_net_loop *loop, cback_net_conn *net) {
+    printf("Got %d bytes!!!\n", net->read_len);
+    char *data = (char *)net->read_buf;
 
-    for (int i = 0; i < len; i++) {
-        printf("%c", data[i]);
+    for (int i = 0; i < net->read_len; i++) {
+        putc(data[i], stdout);
     }
 }
 
@@ -21,8 +21,8 @@ void on_connect(cback_net_loop *loop, cback_net_conn *net) {
 
 int main() {
     cback_net_loop loop = cback_net_loop_init(12);
-    cback_net_conn *net = cback_net_connect(&loop, "monkeytype.com", "80", NET_PROTO_RAW);
-    if (net->state != NET_CONNECTING) {
+    cback_net_conn *net = cback_net_connect(&loop, "monkeytype.com", "443", NET_PROTO_SSL);
+    if (net->state != NET_SSL_HANDSHAKE) {
         perror("");
         exit(EXIT_FAILURE);
     }
