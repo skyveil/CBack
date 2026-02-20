@@ -4,47 +4,39 @@
 #include "net.h"
 
 typedef enum {
-    HTTP_GET,
+    HTTP_GET = 1,
     HTTP_POST,
     HTTP_PUT,
 } cback_http_method;
 
 typedef struct {
-    char *ptr;
+    char *data;
     u32 len;
-} _string_view;
-
-typedef struct _http_url {
-    char *host;
-    char *port;
-    char *path;
-    cback_net_proto proto;
-} _http_url;
+} _cback_string_view;
 
 typedef struct cback_http_header {
-    char *key;
-    char *value;
+    _cback_string_view key;
+    _cback_string_view value;
 } cback_http_header;
 
-// user data
 typedef struct cback_http_req {
     cback_http_method method;
     cback_http_header *headers;
-    char *url;
 
-    u32 body_len;
-    char *body;
+    _cback_string_view body;
 } cback_http_req;
 
-// internal data
-typedef struct cback_http {
-    cback_http_req *req;
-    _http_url url;
+typedef struct cback_http_res {
+    u16 status;
+    _cback_string_view status_string;
+    cback_http_method method;
 
-    cback_net_loop *loop;
-    cback_arena arena;
-} cback_http;
+    u32 num_headers;
+    cback_http_header *headers;
+    _cback_string_view body;
+} cback_http_res;
 
-cback_http cback_http_send(cback_net_loop *loop, cback_http_req *req);
+typedef void (*cback_http_cb)(cback_http_req *req, cback_http_res *res);
+void cback_http_get(cback_net_loop *loop, char *url, cback_http_cb cb, cback_http_req *req);
 
 #endif
